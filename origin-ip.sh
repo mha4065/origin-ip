@@ -166,7 +166,7 @@ rm results/$domain/resolved_subs.txt
 # Sending HTTP request to the all CIDRs equipped with host header
 #=======================================================================
 echo -e "${blue}[!]${NC} Sending HTTP request to the all CIDRs equipped with host header"
-cat results/$domain/prefixes.txt | mapcidr -silent | httpx -silent -H "host: $domain" -H "user-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.4 Safari/605.1.15" -title >> results/$domain/final_results.txt
-rm results/$domain/prefixes.txt
+cat results/$domain/ips.txt | mapcidr -silent | httpx -silent -H "host: $domain" -H "user-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.4 Safari/605.1.15" -title >> results/$domain/final_results.txt
+rm results/$domain/ips.txt
 echo -e "${green}[+]${NC} Everything is finished and the results are saved in ${cyan}results/$domain/final_results.txt${NC}. Have a good hack :))"
 #=======================================================================
