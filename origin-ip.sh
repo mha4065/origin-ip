@@ -153,34 +153,14 @@ fi
 #=======================================================================
 echo -e "${blue}[!]${NC} Checking CIDR to filter CDN IPs"
 if [ -z "$cidr" ]; then
-	cat results/$domain/resolved_subs.txt | mapcidr -filter-ip cdns.txt >> results/$domain/ips.txt
+	cat results/$domain/resolved_subs.txt | mapcidr -silent -filter-ip cdns.txt >> results/$domain/ips.txt
 else
-	cat results/$domain/resolved_subs.txt | mapcidr -filter-ip cdns.txt >> results/$domain/temp.txt
+	cat results/$domain/resolved_subs.txt | mapcidr -silent -filter-ip cdns.txt >> results/$domain/temp.txt
 	cat "$cidr" results/$domain/temp.txt | sort -u > results/$domain/ips.txt
 	rm results/$domain/temp.txt
 fi
 rm results/$domain/resolved_subs.txt
 #=======================================================================
-
-
-# Replace /16 CIDR's to /22
-#=======================================================================
-echo -e "${blue}[!]${NC} Replace /16 CIDR's to /22"
-while read -r line; do
-    cidr=$(echo $line | cut -d '/' -f1)
-    prefix=$(echo $line | cut -d '/' -f2)
-
-    if [[ $prefix -lt 16 ]]; then
-        new_prefix=22
-    else
-        new_prefix=$prefix
-    fi
-
-    echo "$cidr/$new_prefix" >> results/$domain/prefixes.txt
-done < results/$domain/ips.txt
-rm results/$domain/ips.txt
-#=======================================================================
-
 
 
 # Sending HTTP request to the all CIDRs equipped with host header
