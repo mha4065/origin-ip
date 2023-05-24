@@ -1,8 +1,5 @@
 #!/bin/bash
 
-
-GITHUB_TOKEN="Your github token"
-
 red='\033[0;31m'
 green='\033[0;32m'
 yellow='\033[0;33m'
@@ -11,31 +8,20 @@ magenta='\033[0;35m'
 cyan='\033[0;36m'
 NC='\033[0m'
 
-printf "
+usage() { echo "Usage: ./origin-ip.sh -d domain.tld [-i subdomain.txt] [-c cidr.txt] [-r cdn_ranges.txt] [-s] [-o output.txt]" 1>&2; exit 1; }
 
-            _       _             _       
-  ___  _ __(_) __ _(_)_ __       (_)_ __  
- / _ \| '__| |/ _\` | | '_ \ _____| | '_ \ 
-| (_) | |  | | (_| | | | | |_____| | |_) |
- \___/|_|  |_|\__, |_|_| |_|     |_| .__/ 
-              |___/                |_|    
-
-              		${cyan}Developed by MHA${NC}	     			                  
-                               	${yellow}mha4065.com${NC}
-
-"
-
-usage() { echo "Usage: ./origin-ip.sh -d domain.tld [-s subdomain.txt] [-c cidr.txt]" 1>&2; exit 1; }
-
-while getopts "d:s:c:" flag
+while getopts "d:i:c:r:o:s" flag
 do
     case "${flag}" in
         d) domain=${OPTARG#*//};;
-        s) subdomain="$OPTARG";;
-        i) cidr="$OPTARG";;
+        i) subdomain="$OPTARG";;
+        c) cidr="$OPTARG";;
+        r) cdn_ranges="$OPTARG";;
+        o) output="$OPTARG";;
+        s) silent=true;;
         \? ) usage;;
         : ) usage;;
-		*) usage;;
+	*) usage;;
     esac
 done
 
@@ -43,22 +29,39 @@ if [[ -z "${domain}" ]]; then
   usage
 fi
 
+if [[ -z "${silent}" ]]; then
+	printf "
+
+		    _       _             _       
+	  ___  _ __(_) __ _(_)_ __       (_)_ __  
+	 / _ \| '__| |/ _\` | | '_ \ _____| | '_ \ 
+	| (_) | |  | | (_| | | | | |_____| | |_) |
+	 \___/|_|  |_|\__, |_|_| |_|     |_| .__/ 
+		      |___/                |_|    
+
+		      		${cyan}Developed by MHA${NC}	     			                  
+		                       	${yellow}mha4065.com${NC}
+
+	"
+fi
 
 # Check results/domain is exist or not
 #=======================================================================
 if [ ! -d "results" ]; then
     mkdir "results"
-    if [ ! -d "results/$domain" ]; then
-    	mkdir "results/$domain"
-    fi
+fi
+if [ ! -d "results/$domain" ]; then
+    mkdir "results/$domain"
 fi
 #=======================================================================
 
 
 # Check the requirements
 #=======================================================================
-echo
-echo -e "${blue}[!]${NC} Check the requirements :"
+if [[ -z "${silent}" ]]; then
+	echo
+	echo -e "${blue}[!]${NC} Check the requirements :"
+fi
 
 if ! command -v subfinder &> /dev/null
 then
@@ -72,9 +75,9 @@ then
     exit
 fi
 
-if ! command -v github-subdomains &> /dev/null
+if ! command -v amass &> /dev/null
 then
-    echo -e "   ${red}[-]${NC} github-subdomains could not be found !"
+    echo -e "   ${red}[-]${NC} Amass could not be found !"
     exit
 fi
 
@@ -96,77 +99,137 @@ then
     exit
 fi
 
-echo -e "   ${green}[+]${NC} All requirements are installed :)"
+if [[ -z "${silent}" ]]; then
+	echo -e "   ${green}[+]${NC} All requirements are installed :)"
+fi
 #=======================================================================
 
 
 # Subdomain enumeration
 #=======================================================================
-function sub_enumeration() {
-    echo
-    echo -e "${blue}[!]${NC} Subdomain enumeration :"
+if [[ -z "${silent}" ]]; then
+	echo
+	echo -e "${blue}[!]${NC} Subdomain enumeration :"
+fi
 
-    # Subfinder ==========================
-    echo -e "   ${green}[+]${NC} Subfinder"
-    subfinder -d $domain -all -silent > results/$domain/subfinder.txt
+# Subfinder ==========================
+if [[ -z "${silent}" ]]; then
+	echo -e "   ${green}[+]${NC} Subfinder"
+fi
+subfinder -d $domain -all -silent > results/$domain/subfinder.txt
 
-    # Assetfinder ========================
-    echo -e "   ${green}[+]${NC} Assetfinder"
-    assetfinder --subs-only $domain > results/$domain/assetfinder.txt
+# Assetfinder ========================
+if [[ -z "${silent}" ]]; then
+	echo -e "   ${green}[+]${NC} Assetfinder"
+fi
+assetfinder --subs-only $domain > results/$domain/assetfinder.txt
 
-    # Crt.sh =============================
-    echo -e "   ${green}[+]${NC} crt.sh"
-    curl -s "https://crt.sh/?q=$domain&output=json" | tr '\0' '\n' | jq -r ".[].common_name,.[].name_value" | sort -u > results/$domain/crtsh.txt
+# Amass ==============================
+if [[ -z "${silent}" ]]; then
+	echo -e "   ${green}[+]${NC} Amass (Passive)"
+fi
+amass enum --passive -d $domain -silent -o results/$domain/amass.txt
 
-    # AbuseDB ============================
-    echo -e "   ${green}[+]${NC} AbuseDB"
-    curl -s "https://www.abuseipdb.com/whois/$domain" -H "User-Agent: Chrome" | grep -E '<li>\w.*</li>' | sed -E 's/<\/?li>//g' | sed -e "s/$/.$domain/" > results/$domain/abusedb.txt
+# Crt.sh =============================
+if [[ -z "${silent}" ]]; then
+	echo -e "   ${green}[+]${NC} crt.sh"
+fi
+query=$(cat <<-END
+	SELECT
+		ci.NAME_VALUE
+	FROM
+		certificate_and_identities ci
+	WHERE
+		plainto_tsquery('certwatch', '$domain') @@ identities(ci.CERTIFICATE)
+	END
+)
+echo "$query" | psql -t -h crt.sh -p 5432 -U guest certwatch | sed 's/ //g' | grep -E ".*.\.$domain" | sed 's/*\.//g' | tr '[:upper:]' '[:lower:]' | sort -u | tee -a results/$domain/crtsh.txt &> /dev/null
 
-    # Github subdomains ==================
-    echo -e "   ${green}[+]${NC} Github"
-    github-subdomains -d $domain -e -o results/$domain/github.txt -t $token > /dev/null 2>&1
+# AbuseDB ============================
+if [[ -z "${silent}" ]]; then
+	echo -e "   ${green}[+]${NC} AbuseDB"
+fi
+curl -s "https://www.abuseipdb.com/whois/$domain" -H "User-Agent: Chrome" | grep -E '<li>\w.*</li>' | sed -E 's/<\/?li>//g' | sed -e "s/$/.$domain/" > results/$domain/abusedb.txt
 
-    # Remove duplicates
-    cat results/$domain/subfinder.txt results/$domain/assetfinder.txt results/$domain/crtsh.txt results/$domain/github.txt results/$domain/abusedb.txt | sort -u > results/$domain/subdomains.txt
-    rm results/$domain/subfinder.txt results/$domain/assetfinder.txt results/$domain/crtsh.txt results/$domain/github.txt results/$domain/abusedb.txt 
+# Github subdomains ==================
+if [[ -z "${silent}" ]]; then
+	echo -e "   ${green}[+]${NC} Github"
+fi
+q=$(echo $domain | sed -e 's/\./\\\./g')
+src search -json '([a-z\-]+)?:?(\/\/)?([a-zA-Z0-9]+[.])+('${q}') count:5000 fork:yes archived:yes' | jq -r '.Results[] | .lineMatches[].preview, .file.path' | grep -oiE '([a-zA-Z0-9]+[.])+('${q}')' | awk '{ print tolower($0) }' | sort -u > results/$domain/github.txt
 
-    echo -e "${blue}[!]${NC} Subdomain enumeration completed :))"
-}
+# Remove duplicates
+cat results/$domain/subfinder.txt results/$domain/assetfinder.txt results/$domain/amass.txt results/$domain/crtsh.txt results/$domain/github.txt results/$domain/abusedb.txt | sort -u > results/$domain/subdomains.txt
+rm results/$domain/subfinder.txt results/$domain/assetfinder.txt results/$domain/amass.txt results/$domain/crtsh.txt results/$domain/github.txt results/$domain/abusedb.txt 
 
+if [[ -z "${silent}" ]]; then
+	echo -e "${blue}[!]${NC} Subdomain enumeration completed :))"
+fi
 #=======================================================================
 
 
 # Name resolution
 #=======================================================================
 if [ -z "$subdomain" ]; then
-	sub_enumeration
-	echo -e "${blue}[!]${NC} Name resolution on all subdomains"
+	if [[ -z "${silent}" ]]; then
+		echo -e "${blue}[!]${NC} Name resolution on all subdomains"
+	fi
 	cat results/$domain/subdomains.txt | dnsx -silent -resp-only > results/$domain/resolved_subs.txt
 else
-	echo -e "${blue}[!]${NC} Name resolution on all subdomains"
-	cat "$subdomain" | dnsx -silent -resp-only > results/$domain/resolved_subs.txt
+	if [[ -z "${silent}" ]]; then
+		echo -e "${blue}[!]${NC} Name resolution on all subdomains"
+	fi
+	cat results/$domain/subdomains.txt $subdomain | sort -u > results/$domain/subs_temp.txt
+	cat results/$domain/subs_temp.txt | dnsx -silent -resp-only > results/$domain/resolved_subs.txt
+	rm results/$domain/subs_temp.txt
 fi
+rm results/$domain/subdomains.txt
 #=======================================================================
 
 
 # Checking CIDR to filter CDN IPs
 #=======================================================================
-echo -e "${blue}[!]${NC} Checking CIDR to filter CDN IPs"
-if [ -z "$cidr" ]; then
+if [[ -z "${silent}" ]]; then
+	echo -e "${blue}[!]${NC} Checking CIDR to filter CDN IPs"
+fi
+if [ -z "$cdn_ranges" ]; then
 	cat results/$domain/resolved_subs.txt | mapcidr -silent -filter-ip cdns.txt >> results/$domain/ips.txt
 else
-	cat results/$domain/resolved_subs.txt | mapcidr -silent -filter-ip cdns.txt >> results/$domain/temp.txt
-	cat "$cidr" results/$domain/temp.txt | sort -u > results/$domain/ips.txt
-	rm results/$domain/temp.txt
+	cat results/$domain/resolved_subs.txt | mapcidr -silent -filter-ip "$cdn_ranges" >> results/$domain/ips.txt
 fi
 rm results/$domain/resolved_subs.txt
+
+if [ "$cidr" ]; then
+	if [[ -z "${silent}" ]]; then
+		echo -e "${green}[+]${NC} Check input CIDRs and remove CDNs CIDR's"
+	fi
+	if [ -z "$cdn_ranges" ]; then
+		cat $cidr | mapcidr -silent -filter-ip cdns.txt | sort -u >> results/$domain/temp_cidr.txt
+	else
+		cat $cidr | mapcidr -silent -filter-ip "$cdn_ranges" | sort -u >> results/$domain/temp_cidr.txt
+	fi
+	cat results/$domain/temp_cidr.txt results/$domain/ips.txt | sort -u > results/$domain/new_ips.txt
+	rm results/$domain/ips.txt
+	mv results/$domain/new_ips.txt results/$domain/ips.txt
+	rm results/$domain/temp_cidr.txt
+fi
+
 #=======================================================================
 
 
 # Sending HTTP request to the all CIDRs equipped with host header
 #=======================================================================
-echo -e "${blue}[!]${NC} Sending HTTP request to the all CIDRs equipped with host header"
-cat results/$domain/ips.txt | mapcidr -silent | httpx -silent -H "host: $domain" -H "user-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.4 Safari/605.1.15" -title >> results/$domain/final_results.txt
+if [[ -z "${silent}" ]]; then
+	echo -e "${blue}[!]${NC} Sending HTTP request to the all CIDRs equipped with host header"
+fi
+if [[ -z "${output}" ]]; then
+	cat results/$domain/ips.txt | mapcidr -silent | httpx -silent -H "host: $domain" -H "user-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.4 Safari/605.1.15" -title -nc
+else
+	cat results/$domain/ips.txt | mapcidr -silent | httpx -silent -H "host: $domain" -H "user-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.4 Safari/605.1.15" -title -nc >> results/$domain/$output
+fi
 rm results/$domain/ips.txt
-echo -e "${green}[+]${NC} Everything is finished and the results are saved in ${cyan}results/$domain/final_results.txt${NC}. Have a good hack :))"
+
+if [ "${output}" ]; then
+	echo -e "${green}[+]${NC} Everything is finished and the results are saved in ${cyan}results/$domain/$output${NC}"
+fi
 #=======================================================================
