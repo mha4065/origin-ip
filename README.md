@@ -28,7 +28,7 @@ Origin-IP is a Bash script to find the origin IP address of a target.
 ### Basic Usage
 `./origin-ip -d domain.tld`
 
-### Scanning Options
+### Tool Options
 - `-i` : Specify a list of subdomains
 - `-c` : Specify a list of CIDR
 - `-r` : Specify a list of CDN ranges
