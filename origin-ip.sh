@@ -69,9 +69,9 @@ then
     exit
 fi
 
-if ! command -v assetfinder &> /dev/null
+if ! command -v anew &> /dev/null
 then
-    echo -e "   ${red}[-]${NC} assetfinder could not be found !"
+    echo -e "   ${red}[-]${NC} anew could not be found !"
     exit
 fi
 
@@ -118,12 +118,6 @@ if [[ -z "${silent}" ]]; then
 fi
 subfinder -d $domain -all -silent > results/$domain/subfinder.txt
 
-# Assetfinder ========================
-if [[ -z "${silent}" ]]; then
-	echo -e "   ${green}[+]${NC} Assetfinder"
-fi
-assetfinder --subs-only $domain > results/$domain/assetfinder.txt
-
 # Amass ==============================
 if [[ -z "${silent}" ]]; then
 	echo -e "   ${green}[+]${NC} Amass (Passive)"
@@ -145,12 +139,6 @@ query=$(cat <<-END
 )
 echo "$query" | psql -t -h crt.sh -p 5432 -U guest certwatch | sed 's/ //g' | grep -E ".*.\.$domain" | sed 's/*\.//g' | tr '[:upper:]' '[:lower:]' | sort -u | tee -a results/$domain/crtsh.txt &> /dev/null
 
-# AbuseDB ============================
-if [[ -z "${silent}" ]]; then
-	echo -e "   ${green}[+]${NC} AbuseDB"
-fi
-curl -s "https://www.abuseipdb.com/whois/$domain" -H "User-Agent: Chrome" | grep -E '<li>\w.*</li>' | sed -E 's/<\/?li>//g' | sed -e "s/$/.$domain/" > results/$domain/abusedb.txt
-
 # Github subdomains ==================
 if [[ -z "${silent}" ]]; then
 	echo -e "   ${green}[+]${NC} Github"
@@ -159,8 +147,8 @@ q=$(echo $domain | sed -e 's/\./\\\./g')
 src search -json '([a-z\-]+)?:?(\/\/)?([a-zA-Z0-9]+[.])+('${q}') count:5000 fork:yes archived:yes' | jq -r '.Results[] | .lineMatches[].preview, .file.path' | grep -oiE '([a-zA-Z0-9]+[.])+('${q}')' | awk '{ print tolower($0) }' | sort -u > results/$domain/github.txt
 
 # Remove duplicates
-cat results/$domain/subfinder.txt results/$domain/assetfinder.txt results/$domain/amass.txt results/$domain/crtsh.txt results/$domain/github.txt results/$domain/abusedb.txt | sort -u > results/$domain/subdomains.txt
-rm results/$domain/subfinder.txt results/$domain/assetfinder.txt results/$domain/amass.txt results/$domain/crtsh.txt results/$domain/github.txt results/$domain/abusedb.txt 
+cat results/$domain/subfinder.txt results/$domain/amass.txt results/$domain/crtsh.txt results/$domain/github.txt | sort -u > results/$domain/subdomains.txt
+rm results/$domain/subfinder.txt results/$domain/amass.txt results/$domain/crtsh.txt results/$domain/github.txt 
 
 if [[ -z "${silent}" ]]; then
 	echo -e "${blue}[!]${NC} Subdomain enumeration completed :))"
@@ -179,11 +167,9 @@ else
 	if [[ -z "${silent}" ]]; then
 		echo -e "${blue}[!]${NC} Name resolution on all subdomains"
 	fi
-	cat results/$domain/subdomains.txt $subdomain | sort -u > results/$domain/subs_temp.txt
-	cat results/$domain/subs_temp.txt | dnsx -silent -resp-only > results/$domain/resolved_subs.txt
-	rm results/$domain/subs_temp.txt
+	cat $subdomain | anew -q results/$domain/subdomains.txt
+	cat results/$domain/subdomains.txt | dnsx -silent -resp-only > results/$domain/resolved_subs.txt
 fi
-rm results/$domain/subdomains.txt
 #=======================================================================
 
 
@@ -204,14 +190,12 @@ if [ "$cidr" ]; then
 		echo -e "${green}[+]${NC} Check input CIDRs and remove CDNs CIDR's"
 	fi
 	if [ -z "$cdn_ranges" ]; then
-		cat $cidr | mapcidr -silent -filter-ip cdns.txt | sort -u >> results/$domain/temp_cidr.txt
+		cat $cidr | mapcidr -silent -filter-ip cdns.txt | sort -u >> results/$domain/filtered_cidr.txt
 	else
-		cat $cidr | mapcidr -silent -filter-ip "$cdn_ranges" | sort -u >> results/$domain/temp_cidr.txt
+		cat $cidr | mapcidr -silent -filter-ip "$cdn_ranges" | sort -u >> results/$domain/filtered_cidr.txt
 	fi
-	cat results/$domain/temp_cidr.txt results/$domain/ips.txt | sort -u > results/$domain/new_ips.txt
-	rm results/$domain/ips.txt
-	mv results/$domain/new_ips.txt results/$domain/ips.txt
-	rm results/$domain/temp_cidr.txt
+	cat results/$domain/filtered_cidr.txt | anew -q results/$domain/ips.txt
+	rm results/$domain/filtered_cidr.txt
 fi
 
 #=======================================================================
